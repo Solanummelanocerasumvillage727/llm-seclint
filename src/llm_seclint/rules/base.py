@@ -1,0 +1,65 @@
+"""Abstract base class for security rules."""
+
+from __future__ import annotations
+
+import abc
+import ast
+from pathlib import Path
+
+from llm_seclint.core.finding import Finding
+from llm_seclint.core.severity import Severity
+
+
+class Rule(abc.ABC):
+    """Abstract base class for a security detection rule."""
+
+    rule_id: str = ""
+    rule_name: str = ""
+    severity: Severity = Severity.MEDIUM
+    description: str = ""
+    cwe_id: str = ""
+    owasp_llm: str = ""
+
+    @abc.abstractmethod
+    def check(
+        self, tree: ast.Module, file_path: Path, source_lines: list[str]
+    ) -> list[Finding]:
+        """Run the rule against an AST and return any findings.
+
+        Args:
+            tree: The parsed Python AST.
+            file_path: Path to the source file.
+            source_lines: Source code split into lines.
+
+        Returns:
+            List of findings detected by this rule.
+        """
+        ...
+
+    def _make_finding(
+        self,
+        file_path: Path,
+        line: int,
+        message: str,
+        source_lines: list[str],
+        col: int = 0,
+        fix_suggestion: str = "",
+    ) -> Finding:
+        """Helper to create a Finding with common fields pre-filled."""
+        snippet = ""
+        if 0 < line <= len(source_lines):
+            snippet = source_lines[line - 1].rstrip()
+
+        return Finding(
+            rule_id=self.rule_id,
+            rule_name=self.rule_name,
+            severity=self.severity,
+            message=message,
+            file_path=file_path,
+            line=line,
+            col=col,
+            code_snippet=snippet,
+            fix_suggestion=fix_suggestion,
+            cwe_id=self.cwe_id,
+            owasp_llm=self.owasp_llm,
+        )

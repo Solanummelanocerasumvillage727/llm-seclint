@@ -1,0 +1,227 @@
+# llm-seclint
+
+[![PyPI version](https://img.shields.io/pypi/v/llm-seclint.svg)](https://pypi.org/project/llm-seclint/)
+[![CI](https://github.com/xr843/llm-seclint/actions/workflows/ci.yml/badge.svg)](https://github.com/xr843/llm-seclint/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+
+**Static security linter for LLM-powered applications.**
+
+> The [Bandit](https://github.com/PyCQA/bandit) for LLM apps -- find vulnerabilities before they ship.
+
+## The Problem
+
+LLM-powered applications introduce a new class of vulnerabilities that traditional security tools miss:
+
+- **Prompt injection** through unsanitized user input
+- **Arbitrary code execution** when LLM output flows into `eval()`, `subprocess`, or SQL queries
+- **API key leakage** through hardcoded credentials
+- **Path traversal** when LLM output controls file access
+
+Existing tools like [garak](https://github.com/leondz/garak), [LLM Guard](https://github.com/protectai/llm-guard), and [Guardrails](https://github.com/guardrails-ai/guardrails) operate at **runtime** -- they test deployed models or filter live traffic. None of them analyze your **source code** before you ship.
+
+**llm-seclint** fills this gap. It scans your Python source using AST analysis to find LLM-specific security issues at development time, just like Bandit does for general Python security.
+
+## Quick Start
+
+```bash
+pip install llm-seclint
+```
+
+Scan your project:
+
+```bash
+llm-seclint scan .
+```
+
+That's it. You'll see output like:
+
+```
+src/app.py
+  !! L12 [LS001] Hardcoded API key assigned to 'OPENAI_API_KEY'
+  !  L25 [LS002] User input interpolated into prompt via f-string
+  !! L41 [LS003] LLM/dynamic output interpolated into SQL query via f-string
+
+Found 3 issue(s): 2 critical, 1 high
+Scanned in 0.03s
+```
+
+## What It Detects
+
+| Rule | Name | Severity | Description |
+|------|------|----------|-------------|
+| LS001 | `hardcoded-api-key` | CRITICAL | Hardcoded API keys for LLM providers (OpenAI, Anthropic, xAI, etc.) |
+| LS002 | `prompt-concat-injection` | HIGH | User input concatenated into LLM prompts via f-strings, +, or .format() |
+| LS003 | `llm-to-sql-injection` | CRITICAL | LLM output interpolated into SQL queries |
+| LS004 | `llm-to-shell-injection` | CRITICAL | LLM output passed to subprocess/os.system |
+| LS005 | `llm-to-path-traversal` | HIGH | LLM output used as file paths |
+| LS006 | `insecure-deserialization` | HIGH | eval/exec/pickle/unsafe yaml on dynamic input |
+
+### Examples
+
+#### LS001: Hardcoded API Key
+
+```python
+# Bad - detected by llm-seclint
+openai.api_key = "sk-proj-abc123..."
+client = Anthropic(api_key="sk-ant-api03-...")
+
+# Good
+openai.api_key = os.environ["OPENAI_API_KEY"]
+client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+```
+
+#### LS002: Prompt Injection
+
+```python
+# Bad - user input directly in prompt
+prompt = f"You are a bot. User says: {user_input}"
+
+# Good - separate message roles
+messages = [
+    {"role": "system", "content": "You are a bot."},
+    {"role": "user", "content": user_input},
+]
+```
+
+#### LS003: SQL Injection via LLM Output
+
+```python
+# Bad - LLM output in SQL
+cursor.execute(f"SELECT * FROM users WHERE name = '{llm_response}'")
+
+# Good - parameterized query
+cursor.execute("SELECT * FROM users WHERE name = ?", (llm_response,))
+```
+
+#### LS004: Shell Injection via LLM Output
+
+```python
+# Bad - LLM output to shell
+subprocess.run(llm_output, shell=True)
+
+# Good - validate against allowlist
+if command in ALLOWED_COMMANDS:
+    subprocess.run([command], check=False)
+```
+
+#### LS005: Path Traversal via LLM Output
+
+```python
+# Bad - LLM output as file path
+with open(llm_response) as f: ...
+
+# Good - validate against base directory
+path = (ALLOWED_BASE / filename).resolve()
+assert str(path).startswith(str(ALLOWED_BASE))
+```
+
+#### LS006: Insecure Deserialization
+
+```python
+# Bad - eval on LLM response
+data = eval(llm_response)
+
+# Good - use safe parsing
+data = json.loads(llm_response)
+```
+
+## OWASP LLM Top 10 Mapping
+
+| OWASP LLM Top 10 | llm-seclint Rules |
+|---|---|
+| LLM01: Prompt Injection | LS002 |
+| LLM02: Insecure Output Handling | LS003, LS004, LS005, LS006 |
+| LLM06: Sensitive Information Disclosure | LS001 |
+
+## Comparison
+
+| Feature | llm-seclint | garak | LLM Guard | Guardrails |
+|---------|:-----------:|:-----:|:---------:|:----------:|
+| Analysis type | Static (AST) | Dynamic (probing) | Runtime (filter) | Runtime (guard) |
+| Requires running model | No | Yes | Yes | Yes |
+| CI/CD integration | Native | Manual | Manual | Manual |
+| Finds hardcoded keys | Yes | No | No | No |
+| Finds prompt injection patterns | Yes | Tests for | Filters | Filters |
+| Finds output handling flaws | Yes | No | No | No |
+| Language | Python | Python | Python | Python |
+
+## CLI Usage
+
+```bash
+# Scan current directory
+llm-seclint scan .
+
+# Scan specific files
+llm-seclint scan src/ --include "*.py"
+
+# JSON output
+llm-seclint scan . --format json -o results.json
+
+# Ignore specific rules
+llm-seclint scan . --ignore LS001,LS002
+
+# Set minimum severity
+llm-seclint scan . --min-severity HIGH
+
+# List all rules
+llm-seclint rules
+
+# Show version
+llm-seclint --version
+```
+
+## Configuration
+
+Create a `.llm-seclint.yml` in your project root:
+
+```yaml
+# Patterns for files to include
+include_patterns:
+  - "*.py"
+
+# Patterns for files to exclude
+exclude_patterns:
+  - "test_*.py"
+  - "*_test.py"
+
+# Rules to ignore
+ignore_rules:
+  - LS005
+
+# Minimum severity to report (CRITICAL, HIGH, MEDIUM, LOW, INFO)
+min_severity: MEDIUM
+```
+
+## Installation for Development
+
+```bash
+git clone https://github.com/xr843/llm-seclint.git
+cd llm-seclint
+pip install -e ".[dev]"
+pytest
+```
+
+## Contributing
+
+Contributions are welcome! Here's how to add a new rule:
+
+1. Create a new file in `src/llm_seclint/rules/python/`
+2. Subclass `Rule` and implement the `check()` method
+3. Register the rule in `src/llm_seclint/rules/registry.py`
+4. Add tests in `tests/rules/`
+5. Update this README
+
+Please open an issue first to discuss significant changes.
+
+## Roadmap
+
+- **v0.2**: JavaScript/TypeScript analyzer (LangChain.js, Vercel AI SDK)
+- **v0.3**: YAML/JSON config file scanning (detecting secrets in LangChain configs)
+- **v0.4**: Framework-specific rules (LangChain, LlamaIndex, Semantic Kernel)
+- **v0.5**: Auto-fix suggestions with `--fix` flag
+- **v1.0**: Stable API, pre-commit hook, VS Code extension
+
+## License
+
+MIT

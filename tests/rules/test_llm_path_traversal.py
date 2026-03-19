@@ -1,0 +1,61 @@
+"""Tests for LS005: LLM output to path traversal detection."""
+
+from __future__ import annotations
+
+from llm_seclint.rules.python.llm_path_traversal import LlmPathTraversalRule
+from tests.conftest import run_rule_on_code
+
+
+def _rule() -> LlmPathTraversalRule:
+    return LlmPathTraversalRule()
+
+
+class TestLlmPathTraversal:
+    def test_open_variable(self) -> None:
+        code = 'open(llm_response)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+        assert findings[0].rule_id == "LS005"
+
+    def test_open_with_context(self) -> None:
+        code = '''
+with open(filename) as f:
+    data = f.read()
+'''
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+
+    def test_path_constructor(self) -> None:
+        code = 'Path(llm_output)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+
+    def test_os_path_join(self) -> None:
+        code = 'os.path.join(base_dir, user_filename)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+
+    def test_shutil_copy(self) -> None:
+        code = 'shutil.copy(source, destination)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+
+    def test_os_remove(self) -> None:
+        code = 'os.remove(filepath)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+
+    def test_safe_open_static(self) -> None:
+        code = 'open("config.json")'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0
+
+    def test_safe_path_static(self) -> None:
+        code = 'Path("/etc/config")'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0
+
+    def test_non_file_function(self) -> None:
+        code = 'mylib.open(some_variable)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0

@@ -11,6 +11,8 @@ from llm_seclint.rules.python.llm_path_traversal import LlmPathTraversalRule
 from llm_seclint.rules.python.llm_shell_injection import LlmShellInjectionRule
 from llm_seclint.rules.python.llm_sql_injection import LlmSqlInjectionRule
 from llm_seclint.rules.python.prompt_injection import PromptConcatInjectionRule
+from llm_seclint.rules.python.ssti import SSTIRule
+from llm_seclint.rules.python.xxe import XXERule
 
 
 class RuleRegistry:
@@ -53,6 +55,8 @@ class RuleRegistry:
             LlmShellInjectionRule(),
             LlmPathTraversalRule(),
             InsecureDeserializationRule(),
+            SSTIRule(),
+            XXERule(),
         ]
         for rule in defaults:
             self.register(rule)

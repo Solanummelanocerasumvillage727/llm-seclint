@@ -20,6 +20,11 @@ _DANGEROUS_CALLS: dict[str, set[str]] = {
 _DANGEROUS_STANDALONE = {"system", "popen"}
 
 
+# File path patterns indicating CLI/build/dev tooling (not production LLM code)
+_CLI_BUILD_DIRS = ("/cli/", "/tools/", "/scripts/")
+_CLI_BUILD_FILENAMES = ("setup.py", "setup.cfg", "conftest.py", "manage.py")
+
+
 class LlmShellInjectionRule(Rule):
     """Detect LLM output passed to shell execution functions."""
 
@@ -33,9 +38,25 @@ class LlmShellInjectionRule(Rule):
     cwe_id = "CWE-78"
     owasp_llm = "LLM02: Insecure Output Handling"
 
+    @staticmethod
+    def _is_cli_or_build_file(file_path: Path) -> bool:
+        """Return True if the file is in a CLI/build/scripts directory or is a build file."""
+        path_str = str(file_path)
+        # Normalise to forward slashes for cross-platform matching
+        path_posix = path_str.replace("\\", "/")
+        if any(d in path_posix for d in _CLI_BUILD_DIRS):
+            return True
+        if file_path.name in _CLI_BUILD_FILENAMES:
+            return True
+        return False
+
     def check(
         self, tree: ast.Module, file_path: Path, source_lines: list[str]
     ) -> list[Finding]:
+        # Skip CLI/build/dev tooling files entirely
+        if self._is_cli_or_build_file(file_path):
+            return []
+
         findings: list[Finding] = []
 
         for node in ast.walk(tree):
@@ -57,10 +78,23 @@ class LlmShellInjectionRule(Rule):
                     for kw in node.keywords
                 )
 
-                # Check if the command argument contains dynamic content
                 if node.args:
                     cmd_arg = node.args[0]
-                    if self._is_dynamic(cmd_arg):
+                    is_list_literal = isinstance(cmd_arg, ast.List)
+                    is_dynamic = self._is_dynamic(cmd_arg)
+
+                    # Safe pattern: list literal of constants without shell=True
+                    # e.g. subprocess.run(["ls", "-la"]) or
+                    #      subprocess.run(["ls", "-la"], shell=False)
+                    # This is the officially recommended Python pattern.
+                    if is_list_literal and not has_shell_true and not is_dynamic:
+                        continue
+
+                    # shell=True with a list literal is suspicious misuse
+                    # (Python joins list elements into a string for the shell)
+                    should_flag = is_dynamic or (has_shell_true and is_list_literal)
+
+                    if should_flag:
                         msg = f"Dynamic output passed to {func_display}"
                         if has_shell_true:
                             msg += " with shell=True"

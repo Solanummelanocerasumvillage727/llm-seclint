@@ -5,9 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-**Static security linter for LLM-powered applications.**
+**Find LLM security vulnerabilities before they ship.**
 
-> The [Bandit](https://github.com/PyCQA/bandit) for LLM apps -- find vulnerabilities before they ship.
+llm-seclint is a static analysis tool that scans Python source code for security issues specific to LLM-powered applications. Think [Bandit](https://github.com/PyCQA/bandit), but for the AI era.
 
 ## The Problem
 
@@ -17,6 +17,8 @@ LLM-powered applications introduce a new class of vulnerabilities that tradition
 - **Arbitrary code execution** when LLM output flows into `eval()`, `subprocess`, or SQL queries
 - **API key leakage** through hardcoded credentials
 - **Path traversal** when LLM output controls file access
+- **Template injection** when dynamic content reaches template engines unsandboxed
+- **XML external entities** when parsing untrusted XML without protection
 
 Existing tools like [garak](https://github.com/leondz/garak), [LLM Guard](https://github.com/protectai/llm-guard), and [Guardrails](https://github.com/guardrails-ai/guardrails) operate at **runtime** -- they test deployed models or filter live traffic. None of them analyze your **source code** before you ship.
 
@@ -36,7 +38,7 @@ llm-seclint scan .
 
 That's it. You'll see output like:
 
-```
+```text
 src/app.py
   !! L12 [LS001] Hardcoded API key assigned to 'OPENAI_API_KEY'
   !  L25 [LS002] User input interpolated into prompt via f-string
@@ -46,16 +48,48 @@ Found 3 issue(s): 2 critical, 1 high
 Scanned in 0.03s
 ```
 
+## How It Works
+
+```text
+Source Code → AST Parsing → 8 Security Rules → Findings Report
+                              ├─ LS001: Hardcoded API Keys
+                              ├─ LS002: Prompt Injection
+                              ├─ LS003: SQL Injection via LLM
+                              ├─ LS004: Shell Injection via LLM
+                              ├─ LS005: Path Traversal via LLM
+                              ├─ LS006: Insecure Deserialization
+                              ├─ LS007: Template Injection (SSTI)
+                              └─ LS008: XXE XML Parsing
+```
+
+llm-seclint parses your Python files into Abstract Syntax Trees and applies targeted security rules that understand LLM-specific data flows. No model access required, no runtime overhead -- just fast, deterministic analysis.
+
+## Real-World Results
+
+llm-seclint has found real vulnerabilities in production codebases:
+
+| Project | Stars | Finding | Status |
+|---------|-------|---------|--------|
+| [Dify](https://github.com/langgenius/dify) | 100k+ | Unsafe `pickle.loads()` on database data (LS006) | Reported |
+| [Dify](https://github.com/langgenius/dify) | 100k+ | `render_template_string()` SSTI in UNSAFE mode (LS007) | Reported |
+| [Dify](https://github.com/langgenius/dify) | 100k+ | 54 SQL f-string injections in VDB drivers (LS003) | Reported |
+| [LiteLLM](https://github.com/BerriAI/litellm) | 20k+ | `exec()` RCE in custom code guardrails (LS006) | [PR #24455](https://github.com/BerriAI/litellm/pull/24455) |
+| [LiteLLM](https://github.com/BerriAI/litellm) | 20k+ | Jinja2 SSTI in 4 prompt managers (LS007) | [PR #24458](https://github.com/BerriAI/litellm/pull/24458) |
+| [vllm](https://github.com/vllm-project/vllm) | 45k+ | `eval()` on LLM output in example code (LS006) | [PR #37939](https://github.com/vllm-project/vllm/pull/37939) |
+| [crewAI](https://github.com/crewAIInc/crewAI) | 30k+ | XXE exception handling + `exec()` in code interpreter | [PR #5005](https://github.com/crewAIInc/crewAI/pull/5005) |
+
 ## What It Detects
 
 | Rule | Name | Severity | Description |
 |------|------|----------|-------------|
 | LS001 | `hardcoded-api-key` | CRITICAL | Hardcoded API keys for LLM providers (OpenAI, Anthropic, xAI, etc.) |
-| LS002 | `prompt-concat-injection` | HIGH | User input concatenated into LLM prompts via f-strings, +, or .format() |
+| LS002 | `prompt-concat-injection` | HIGH | User input concatenated into LLM prompts via f-strings, `+`, or `.format()` |
 | LS003 | `llm-to-sql-injection` | CRITICAL | LLM output interpolated into SQL queries |
-| LS004 | `llm-to-shell-injection` | CRITICAL | LLM output passed to subprocess/os.system |
+| LS004 | `llm-to-shell-injection` | CRITICAL | LLM output passed to `subprocess` / `os.system` |
 | LS005 | `llm-to-path-traversal` | HIGH | LLM output used as file paths |
-| LS006 | `insecure-deserialization` | HIGH | eval/exec/pickle/unsafe yaml on dynamic input |
+| LS006 | `insecure-deserialization` | HIGH | `eval` / `exec` / `pickle` / unsafe YAML on dynamic input |
+| LS007 | `server-side-template-injection` | CRITICAL | Dynamic content passed to template engine without sandboxing |
+| LS008 | `xxe-xml-parsing` | HIGH | XML parsing without protection against external entity attacks |
 
 ### Examples
 
@@ -126,13 +160,45 @@ data = eval(llm_response)
 data = json.loads(llm_response)
 ```
 
+#### LS007: Server-Side Template Injection
+
+```python
+# Bad - user input in template string
+render_template_string(f"<h1>Hello {user_input}</h1>")
+
+# Good - pass variables through context
+render_template_string("<h1>Hello {{ name }}</h1>", name=user_input)
+```
+
+#### LS008: XXE XML Parsing
+
+```python
+# Bad - parsing untrusted XML without protection
+tree = etree.parse(user_uploaded_file)
+
+# Good - use defusedxml
+from defusedxml.lxml import parse
+tree = parse(user_uploaded_file)
+```
+
+## Framework Support
+
+llm-seclint understands patterns from popular LLM frameworks:
+
+- **LangChain** -- `PromptTemplate`, `ChatPromptTemplate.from_messages()`, `HumanMessagePromptTemplate`
+- **LiteLLM** -- `litellm.completion()`, `litellm.acompletion()`
+- **OpenAI SDK** -- `openai.ChatCompletion.create()`, `client.chat.completions.create()`
+- **Anthropic SDK** -- `anthropic.Anthropic().messages.create()`
+- **Flask/Jinja2** -- `render_template_string()`, `jinja2.Template()`
+
 ## OWASP LLM Top 10 Mapping
 
 | OWASP LLM Top 10 | llm-seclint Rules |
 |---|---|
 | LLM01: Prompt Injection | LS002 |
-| LLM02: Insecure Output Handling | LS003, LS004, LS005, LS006 |
+| LLM02: Insecure Output Handling | LS003, LS004, LS005, LS006, LS007 |
 | LLM06: Sensitive Information Disclosure | LS001 |
+| A05:2021: Security Misconfiguration | LS008 (CWE-611) |
 
 ## Comparison
 
@@ -141,6 +207,9 @@ data = json.loads(llm_response)
 | Analysis type | Static (AST) | Dynamic (probing) | Runtime (filter) | Runtime (guard) |
 | Requires running model | No | Yes | Yes | Yes |
 | CI/CD integration | Native | Manual | Manual | Manual |
+| SARIF output | Yes | No | No | No |
+| `# nosec` inline suppression | Yes | N/A | N/A | N/A |
+| Pre-commit hook | Yes | No | No | No |
 | Finds hardcoded keys | Yes | No | No | No |
 | Finds prompt injection patterns | Yes | Tests for | Filters | Filters |
 | Finds output handling flaws | Yes | No | No | No |
@@ -158,6 +227,9 @@ llm-seclint scan src/ --include "*.py"
 # JSON output
 llm-seclint scan . --format json -o results.json
 
+# SARIF output (for GitHub Code Scanning)
+llm-seclint scan . --format sarif -o results.sarif
+
 # Ignore specific rules
 llm-seclint scan . --ignore LS001,LS002
 
@@ -169,6 +241,48 @@ llm-seclint rules
 
 # Show version
 llm-seclint --version
+```
+
+## Profiles
+
+llm-seclint ships with two scan profiles:
+
+- `--profile app` (default) — Full scan for LLM-powered applications
+- `--profile engine` — Tuned for LLM inference engines (vllm, TGI, etc.).
+  Disables LS002 (prompt injection) since processing prompts is the engine's job.
+
+### Inline Suppression
+
+Suppress specific findings with `# nosec` comments:
+
+```python
+api_key = "sk-test-key-for-ci"  # nosec LS001
+```
+
+## GitHub Code Scanning Integration
+
+llm-seclint supports [SARIF](https://sarifweb.azurewebsites.net/) output for direct integration with GitHub Code Scanning. Add this to your GitHub Actions workflow:
+
+```yaml
+- name: Run llm-seclint
+  run: llm-seclint scan . --format sarif -o results.sarif
+
+- name: Upload SARIF to GitHub
+  uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: results.sarif
+```
+
+## Pre-commit Hook
+
+Add llm-seclint to your `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/xr843/llm-seclint
+    rev: v0.1.0
+    hooks:
+      - id: llm-seclint
 ```
 
 ## Configuration
@@ -220,7 +334,7 @@ Please open an issue first to discuss significant changes.
 - **v0.3**: YAML/JSON config file scanning (detecting secrets in LangChain configs)
 - **v0.4**: Framework-specific rules (LangChain, LlamaIndex, Semantic Kernel)
 - **v0.5**: Auto-fix suggestions with `--fix` flag
-- **v1.0**: Stable API, pre-commit hook, VS Code extension
+- **v1.0**: Stable API, VS Code extension
 
 ## License
 

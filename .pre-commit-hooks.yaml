@@ -1,0 +1,7 @@
+- id: llm-seclint
+  name: llm-seclint
+  description: Static security linter for LLM-powered applications
+  entry: llm-seclint scan
+  language: python
+  types: [python]
+  require_serial: true

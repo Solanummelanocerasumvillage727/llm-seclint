@@ -42,6 +42,12 @@ class TestLlmSqlInjection:
         findings = run_rule_on_code(_rule(), code)
         assert len(findings) == 0
 
+    def test_safe_constant_concat(self) -> None:
+        """Pure constant concatenation should not trigger (no dynamic part)."""
+        code = 'cursor.execute("SELECT " + "* FROM users")'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0
+
     def test_non_sql_execute(self) -> None:
         code = 'task.execute(some_variable)'
         findings = run_rule_on_code(_rule(), code)

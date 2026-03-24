@@ -65,7 +65,7 @@ def test_scan_json_format(tmp_path: Path) -> None:
     import json
 
     data = json.loads(outfile.read_text())
-    assert "results" in data
+    assert "findings" in data
     assert "summary" in data
     assert data["summary"]["total"] > 0
 
@@ -97,3 +97,50 @@ def test_scan_directory(tmp_path: Path) -> None:
     result = runner.invoke(main, ["scan", str(tmp_path)])
     assert result.exit_code == 1
     assert "LS001" in result.output
+
+
+def test_default_severity_excludes_medium(tmp_path: Path) -> None:
+    """Default min_severity=HIGH should exclude MEDIUM findings like LS005."""
+    py_file = tmp_path / "app.py"
+    # LS005 is MEDIUM severity (path traversal via open())
+    py_file.write_text('with open(user_input) as f:\n    data = f.read()\n')
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["scan", str(tmp_path)])
+    # MEDIUM findings should be excluded by default
+    assert "LS005" not in result.output
+    assert result.exit_code == 0
+
+
+def test_min_severity_info_shows_all(tmp_path: Path) -> None:
+    """--min-severity INFO should show all findings including MEDIUM."""
+    py_file = tmp_path / "app.py"
+    py_file.write_text('with open(user_input) as f:\n    data = f.read()\n')
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["scan", str(tmp_path), "--min-severity", "INFO"])
+    # With INFO, MEDIUM findings should appear
+    assert "LS005" in result.output
+    assert result.exit_code == 1
+
+
+def test_profile_engine_disables_ls002(tmp_path: Path) -> None:
+    """--profile engine should disable LS002 (prompt injection)."""
+    py_file = tmp_path / "app.py"
+    # LS002 is prompt injection via f-string
+    py_file.write_text('prompt = f"You are a bot. User says: {user_input}"\n')
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["scan", str(tmp_path), "--profile", "engine"])
+    assert "LS002" not in result.output
+
+
+def test_profile_app_keeps_all_rules(tmp_path: Path) -> None:
+    """--profile app (default) should keep all rules including LS002."""
+    py_file = tmp_path / "app.py"
+    py_file.write_text('prompt = f"You are a bot. User says: {user_input}"\n')
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["scan", str(tmp_path), "--profile", "app"])
+    assert "LS002" in result.output
+    assert result.exit_code == 1

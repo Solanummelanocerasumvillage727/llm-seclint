@@ -25,15 +25,17 @@ with open(filename) as f:
         findings = run_rule_on_code(_rule(), code)
         assert len(findings) == 1
 
-    def test_path_constructor(self) -> None:
+    def test_path_constructor_not_flagged(self) -> None:
+        """Path() is navigation/construction, not dangerous by itself."""
         code = 'Path(llm_output)'
         findings = run_rule_on_code(_rule(), code)
-        assert len(findings) == 1
+        assert len(findings) == 0
 
-    def test_os_path_join(self) -> None:
+    def test_os_path_join_not_flagged(self) -> None:
+        """os.path.join() is path construction, not dangerous by itself."""
         code = 'os.path.join(base_dir, user_filename)'
         findings = run_rule_on_code(_rule(), code)
-        assert len(findings) == 1
+        assert len(findings) == 0
 
     def test_shutil_copy(self) -> None:
         code = 'shutil.copy(source, destination)'
@@ -51,7 +53,20 @@ with open(filename) as f:
         assert len(findings) == 0
 
     def test_safe_path_static(self) -> None:
+        """Path() with static arg is safe (Path() is not flagged at all now)."""
         code = 'Path("/etc/config")'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0
+
+    def test_os_listdir_not_flagged(self) -> None:
+        """os.listdir() is read-only navigation, not dangerous."""
+        code = 'os.listdir(user_dir)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0
+
+    def test_os_makedirs_not_flagged(self) -> None:
+        """os.makedirs() removed from detection to reduce noise."""
+        code = 'os.makedirs(output_dir)'
         findings = run_rule_on_code(_rule(), code)
         assert len(findings) == 0
 
@@ -59,3 +74,17 @@ with open(filename) as f:
         code = 'mylib.open(some_variable)'
         findings = run_rule_on_code(_rule(), code)
         assert len(findings) == 0
+
+    def test_safe_sanitization_functions_not_flagged(self) -> None:
+        """Sanitization/check functions should not trigger findings."""
+        safe_calls = [
+            'os.path.realpath(user_input)',
+            'os.path.abspath(user_input)',
+            'os.path.exists(user_input)',
+            'os.path.isfile(user_input)',
+            'os.path.isdir(user_input)',
+            'os.stat(user_input)',
+        ]
+        for code in safe_calls:
+            findings = run_rule_on_code(_rule(), code)
+            assert len(findings) == 0, f"{code} should not trigger a finding"

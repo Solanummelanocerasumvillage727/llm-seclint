@@ -151,11 +151,7 @@ class LlmSqlInjectionRule(Rule):
     def _binop_has_sql(node: ast.BinOp) -> bool:
         """Check if a BinOp chain contains SQL keywords in string parts."""
         parts = LlmSqlInjectionRule._collect_binop_parts(node)
-        for part in parts:
-            if isinstance(part, ast.Constant) and isinstance(part.value, str):
-                if LlmSqlInjectionRule._str_has_sql(part.value):
-                    return True
-        # Also need at least one non-constant part
+        # Need at least one non-constant part (dynamic/variable)
         has_variable = any(
             not (isinstance(p, ast.Constant) and isinstance(p.value, str))
             for p in parts

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from llm_seclint.rules.python.llm_shell_injection import LlmShellInjectionRule
 from tests.conftest import run_rule_on_code
 
@@ -57,3 +59,111 @@ class TestLlmShellInjection:
         code = 'mylib.run(some_variable)'
         findings = run_rule_on_code(_rule(), code)
         assert len(findings) == 0
+
+    def test_safe_list_literal_no_shell(self) -> None:
+        """subprocess.run(["ls", "-la"]) is the recommended safe pattern."""
+        code = 'subprocess.run(["ls", "-la"])'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0
+
+    def test_safe_list_literal_shell_false(self) -> None:
+        """subprocess.run(["ls", "-la"], shell=False) is safe."""
+        code = 'subprocess.run(["ls", "-la"], shell=False)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0
+
+    def test_dynamic_variable_shell_true(self) -> None:
+        """subprocess.run(cmd, shell=True) must always trigger."""
+        code = 'subprocess.run(cmd, shell=True)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+        assert "shell=True" in findings[0].message
+
+    def test_dynamic_variable_no_shell(self) -> None:
+        """subprocess.run(cmd) with a variable should trigger."""
+        code = 'subprocess.run(cmd)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+
+    def test_dynamic_variable_shell_false(self) -> None:
+        """subprocess.run(cmd, shell=False) with a variable still triggers."""
+        code = 'subprocess.run(cmd, shell=False)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+
+    def test_list_literal_shell_true_flags(self) -> None:
+        """shell=True with a list literal is misuse and should be flagged."""
+        code = 'subprocess.run(["ls", "-la"], shell=True)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+        assert "shell=True" in findings[0].message
+
+    def test_list_with_dynamic_element_flags(self) -> None:
+        """A list containing a dynamic element should trigger."""
+        code = 'subprocess.run(["cmd", user_input])'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+
+    def test_safe_check_output_list_literal(self) -> None:
+        """subprocess.check_output(["ls"]) is safe."""
+        code = 'subprocess.check_output(["ls", "-la"])'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0
+
+    def test_safe_check_call_list_literal(self) -> None:
+        """subprocess.check_call(["ls"]) is safe."""
+        code = 'subprocess.check_call(["ls", "-la"])'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0
+
+    def test_popen_dynamic_shell_true(self) -> None:
+        """subprocess.Popen(cmd, shell=True) should trigger."""
+        code = 'subprocess.Popen(cmd, shell=True)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+
+
+class TestCliAndBuildFileSkipping:
+    """Ensure subprocess calls in CLI/build/scripts dirs are skipped."""
+
+    def test_skip_cli_directory(self) -> None:
+        """subprocess.run in cli/ directory should NOT trigger."""
+        code = 'subprocess.run(cmd, shell=True)'
+        findings = run_rule_on_code(_rule(), file_path=Path("project/cli/main.py"), code=code)
+        assert len(findings) == 0
+
+    def test_skip_tools_directory(self) -> None:
+        """subprocess.run in tools/ directory should NOT trigger."""
+        code = 'subprocess.run(cmd, shell=True)'
+        findings = run_rule_on_code(_rule(), code=code, file_path=Path("project/tools/build.py"))
+        assert len(findings) == 0
+
+    def test_skip_scripts_directory(self) -> None:
+        """subprocess.run in scripts/ directory should NOT trigger."""
+        code = 'subprocess.run(cmd, shell=True)'
+        findings = run_rule_on_code(_rule(), code=code, file_path=Path("project/scripts/deploy.py"))
+        assert len(findings) == 0
+
+    def test_skip_setup_py(self) -> None:
+        """subprocess.run in setup.py should NOT trigger."""
+        code = 'subprocess.run(cmd, shell=True)'
+        findings = run_rule_on_code(_rule(), code=code, file_path=Path("setup.py"))
+        assert len(findings) == 0
+
+    def test_skip_conftest_py(self) -> None:
+        """subprocess.run in conftest.py should NOT trigger."""
+        code = 'subprocess.run(cmd, shell=True)'
+        findings = run_rule_on_code(_rule(), code=code, file_path=Path("tests/conftest.py"))
+        assert len(findings) == 0
+
+    def test_skip_manage_py(self) -> None:
+        """subprocess.run in manage.py should NOT trigger."""
+        code = 'subprocess.run(cmd, shell=True)'
+        findings = run_rule_on_code(_rule(), code=code, file_path=Path("manage.py"))
+        assert len(findings) == 0
+
+    def test_production_code_still_triggers(self) -> None:
+        """subprocess.run in regular production code should STILL trigger."""
+        code = 'subprocess.run(cmd, shell=True)'
+        findings = run_rule_on_code(_rule(), code=code, file_path=Path("src/app/executor.py"))
+        assert len(findings) == 1

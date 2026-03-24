@@ -11,9 +11,14 @@ from llm_seclint.formatters.base import BaseFormatter
 class JsonFormatter(BaseFormatter):
     """Format findings as a JSON array."""
 
-    def format(self, findings: list[Finding], elapsed: float) -> str:
+    def format(
+        self,
+        findings: list[Finding],
+        elapsed: float,
+        file_count: int = 0,
+    ) -> str:
         output = {
-            "results": [f.to_dict() for f in findings],
+            "findings": [f.to_dict() for f in findings],
             "summary": {
                 "total": len(findings),
                 "critical": sum(1 for f in findings if f.severity.value == "CRITICAL"),
@@ -22,6 +27,7 @@ class JsonFormatter(BaseFormatter):
                 "low": sum(1 for f in findings if f.severity.value == "LOW"),
                 "info": sum(1 for f in findings if f.severity.value == "INFO"),
             },
+            "files_scanned": file_count,
             "elapsed_seconds": round(elapsed, 3),
         }
         return json.dumps(output, indent=2) + "\n"

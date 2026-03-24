@@ -17,9 +17,12 @@ def tmp_py_file(tmp_path: Path) -> Path:
     return tmp_path / "test_input.py"
 
 
-def run_rule_on_code(rule: Rule, code: str) -> list[Finding]:
+def run_rule_on_code(
+    rule: Rule, code: str, file_path: Path | None = None
+) -> list[Finding]:
     """Helper to run a rule against a code string and return findings."""
     tree = ast.parse(code)
     source_lines = code.splitlines()
-    file_path = Path("test.py")
+    if file_path is None:
+        file_path = Path("test.py")
     return rule.check(tree, file_path, source_lines)

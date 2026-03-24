@@ -1,0 +1,18 @@
+# llm-seclint configuration
+# Place this file in your project root
+
+# File patterns to include (default: *.py)
+include_patterns:
+  - "*.py"
+
+# File patterns to exclude
+exclude_patterns:
+  - "test_*.py"
+  - "*_test.py"
+  - "conftest.py"
+
+# Rules to ignore
+ignore_rules: []
+
+# Minimum severity to report (CRITICAL, HIGH, MEDIUM, LOW, INFO)
+min_severity: MEDIUM

@@ -19,6 +19,7 @@ LLM-powered applications introduce a new class of vulnerabilities that tradition
 - **Path traversal** when LLM output controls file access
 - **Template injection** when dynamic content reaches template engines unsandboxed
 - **XML external entities** when parsing untrusted XML without protection
+- **Supply chain attacks** through unpinned LLM dependency versions
 
 Existing tools like [garak](https://github.com/leondz/garak), [LLM Guard](https://github.com/protectai/llm-guard), and [Guardrails](https://github.com/guardrails-ai/guardrails) operate at **runtime** -- they test deployed models or filter live traffic. None of them analyze your **source code** before you ship.
 
@@ -51,7 +52,7 @@ Scanned in 0.03s
 ## How It Works
 
 ```text
-Source Code → AST Parsing → 8 Security Rules → Findings Report
+Source Code → AST Parsing → 9 Security Rules → Findings Report
                               ├─ LS001: Hardcoded API Keys
                               ├─ LS002: Prompt Injection
                               ├─ LS003: SQL Injection via LLM
@@ -59,7 +60,8 @@ Source Code → AST Parsing → 8 Security Rules → Findings Report
                               ├─ LS005: Path Traversal via LLM
                               ├─ LS006: Insecure Deserialization
                               ├─ LS007: Template Injection (SSTI)
-                              └─ LS008: XXE XML Parsing
+                              ├─ LS008: XXE XML Parsing
+                              └─ LS010: Unpinned LLM Dependencies
 ```
 
 llm-seclint parses your Python files into Abstract Syntax Trees and applies targeted security rules that understand LLM-specific data flows. No model access required, no runtime overhead -- just fast, deterministic analysis.
@@ -90,6 +92,7 @@ llm-seclint has found real vulnerabilities in production codebases:
 | LS006 | `insecure-deserialization` | HIGH | `eval` / `exec` / `pickle` / unsafe YAML on dynamic input |
 | LS007 | `server-side-template-injection` | CRITICAL | Dynamic content passed to template engine without sandboxing |
 | LS008 | `xxe-xml-parsing` | HIGH | XML parsing without protection against external entity attacks |
+| LS010 | `unpinned-llm-dependency` | HIGH | LLM dependency uses unpinned version constraint (e.g. `>=` without `<`), vulnerable to supply chain attacks |
 
 ### Examples
 
@@ -180,6 +183,23 @@ tree = etree.parse(user_uploaded_file)
 from defusedxml.lxml import parse
 tree = parse(user_uploaded_file)
 ```
+
+#### LS010: Unpinned LLM Dependency
+
+```text
+# Bad - open-ended constraint allows malicious future releases (requirements.txt)
+litellm>=1.64.0
+dspy>=2.0
+openai>=1.0
+
+# Good - pinned to exact version
+litellm==1.82.2
+
+# Good - upper bound prevents auto-upgrade to compromised versions
+litellm>=1.64.0,<1.83
+```
+
+This rule was motivated by the [litellm supply chain attack](https://blog.pypi.org/posts/2025-01-14-litellm-typosquat/) where `dspy` used `litellm>=1.64.0` and a compromised release was automatically pulled in. It scans `requirements.txt`, `pyproject.toml`, and `setup.cfg` for LLM packages with open-ended `>=` constraints.
 
 ## Framework Support
 

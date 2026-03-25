@@ -63,3 +63,61 @@ class Rule(abc.ABC):
             cwe_id=self.cwe_id,
             owasp_llm=self.owasp_llm,
         )
+
+
+class TextRule(abc.ABC):
+    """Abstract base class for text-based (non-AST) security rules.
+
+    Used for rules that analyze configuration and dependency files
+    rather than Python source code ASTs.
+    """
+
+    rule_id: str = ""
+    rule_name: str = ""
+    severity: Severity = Severity.MEDIUM
+    description: str = ""
+    cwe_id: str = ""
+    owasp_llm: str = ""
+
+    @abc.abstractmethod
+    def check_text(
+        self, source: str, file_path: Path
+    ) -> list[Finding]:
+        """Run the rule against file text content and return any findings.
+
+        Args:
+            source: The raw file content as a string.
+            file_path: Path to the source file.
+
+        Returns:
+            List of findings detected by this rule.
+        """
+        ...
+
+    def _make_finding(
+        self,
+        file_path: Path,
+        line: int,
+        message: str,
+        source_lines: list[str],
+        col: int = 0,
+        fix_suggestion: str = "",
+    ) -> Finding:
+        """Helper to create a Finding with common fields pre-filled."""
+        snippet = ""
+        if 0 < line <= len(source_lines):
+            snippet = source_lines[line - 1].rstrip()
+
+        return Finding(
+            rule_id=self.rule_id,
+            rule_name=self.rule_name,
+            severity=self.severity,
+            message=message,
+            file_path=file_path,
+            line=line,
+            col=col,
+            code_snippet=snippet,
+            fix_suggestion=fix_suggestion,
+            cwe_id=self.cwe_id,
+            owasp_llm=self.owasp_llm,
+        )

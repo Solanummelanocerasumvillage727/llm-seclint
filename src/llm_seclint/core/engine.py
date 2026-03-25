@@ -7,9 +7,10 @@ from pathlib import Path
 
 from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
 from llm_seclint.config import ScanConfig
-from llm_seclint.core.file_discovery import discover_files
+from llm_seclint.core.file_discovery import discover_dependency_files, discover_files
 from llm_seclint.core.finding import Finding
 from llm_seclint.core.severity import Severity
+from llm_seclint.rules.python.dependency_pinning import is_dependency_file
 from llm_seclint.rules.registry import RuleRegistry
 
 
@@ -53,6 +54,9 @@ class ScanEngine:
                 return
             allowed = set(severity_order[: min_idx + 1])
             for rule in list(self.registry.get_enabled_rules()):
+                if rule.severity not in allowed:
+                    self.registry.disable_rule(rule.rule_id)
+            for rule in list(self.registry.get_enabled_text_rules()):
                 if rule.severity not in allowed:
                     self.registry.disable_rule(rule.rule_id)
 
@@ -101,6 +105,24 @@ class ScanEngine:
             result.findings.extend(file_findings)
             result.scanned_count += 1
 
+        # Scan dependency files with text-based rules
+        text_rules = self.registry.get_enabled_text_rules()
+        if text_rules:
+            dep_files = discover_dependency_files(paths)
+            for dep_path in dep_files:
+                try:
+                    source = dep_path.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError) as exc:
+                    result.skipped_files.append(
+                        SkippedFile(path=dep_path, reason=f"read error: {exc}")
+                    )
+                    continue
+                for text_rule in text_rules:
+                    if is_dependency_file(dep_path):
+                        rule_findings = text_rule.check_text(source, dep_path)
+                        result.findings.extend(rule_findings)
+                result.scanned_count += 1
+
         result.findings = self._deduplicate(result.findings)
         result.findings.sort(key=lambda f: (str(f.file_path), f.line))
         return result
@@ -119,7 +141,7 @@ class ScanEngine:
 
     def get_rules_info(self) -> list[dict[str, str]]:
         """Return information about all registered rules."""
-        return [
+        all_rules = [
             {
                 "id": rule.rule_id,
                 "name": rule.rule_name,
@@ -130,3 +152,15 @@ class ScanEngine:
             }
             for rule in self.registry.get_all_rules()
         ]
+        all_rules.extend(
+            {
+                "id": rule.rule_id,
+                "name": rule.rule_name,
+                "severity": str(rule.severity),
+                "description": rule.description,
+                "cwe_id": rule.cwe_id,
+                "enabled": str(rule.rule_id not in self.registry.disabled_rules),
+            }
+            for rule in self.registry.get_all_text_rules()
+        )
+        return all_rules

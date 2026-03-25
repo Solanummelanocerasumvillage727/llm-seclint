@@ -60,9 +60,9 @@ def test_engine_skips_unreadable_files(tmp_path: Path) -> None:
 def test_engine_get_rules_info() -> None:
     engine = ScanEngine()
     info = engine.get_rules_info()
-    assert len(info) == 8
+    assert len(info) == 9
     ids = {r["id"] for r in info}
-    assert ids == {"LS001", "LS002", "LS003", "LS004", "LS005", "LS006", "LS007", "LS008"}
+    assert ids == {"LS001", "LS002", "LS003", "LS004", "LS005", "LS006", "LS007", "LS008", "LS010"}
     # Check that cwe_id is present in rules info
     assert all("cwe_id" in r for r in info)
 

